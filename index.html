@@ -162,7 +162,9 @@
   }
   @media (max-width: 900px) {
     .layout { grid-template-columns: minmax(0, 1fr); }
-    .screen { max-height: none; }
+    /* On phones and tablets Drive shows its touch player, whose controls need
+       more height than 16:9 leaves: there the bottom row was cut off. */
+    .screen { max-height: none; aspect-ratio: 4 / 3; }
     .playlist { position: static; max-height: none; overflow: visible; }
   }
   /* On a phone the player takes the full width of the screen. */
