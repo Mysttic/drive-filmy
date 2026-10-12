@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filmy</title>
+<meta name="description" content="Filmy z folderu na Dysku Google, z pełnymi nazwami i zaznaczonymi obejrzanymi.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23512BD4'/%3E%3Cpath d='M12 9.5v13l11-6.5z' fill='white'/%3E%3C/svg%3E">
+<style>
+  /* Light palette here, dark one below; only the tokens differ. */
+  :root {
+    color-scheme: light;
+    --accent: #512BD4;
+    --accent-soft: #6B45E0;
+    --button: #512BD4;
+    --button-hover: #6B45E0;
+    --text: #16151a;
+    --text-quiet: #5c5966;
+    --bg: #ffffff;
+    --bg-card: #f7f5fb;
+    --border: #e6e2f0;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --accent: #b9a5ff;
+      --accent-soft: #cdbcff;
+      --button: #6B45E0;
+      --button-hover: #7c5ae8;
+      --text: #ece9f5;
+      --text-quiet: #a5a0b8;
+      --bg: #14131a;
+      --bg-card: #1d1b26;
+      --border: #2e2b3b;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; } /* the rules below set display on some of them */
+  body {
+    margin: 0;
+    font: 16px/1.65 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 0 24px; }
+
+  header.top {
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg); z-index: 10;
+  }
+  header.top .wrap { display: flex; align-items: center; gap: 12px; height: 62px; }
+  header.top svg { width: 28px; height: 28px; flex: none; }
+  header.top b { font-size: 17px; letter-spacing: -.01em; }
+  header.top nav { margin-left: auto; display: flex; align-items: center; gap: 22px; font-size: 15px; }
+  header.top nav a { color: var(--text-quiet); text-decoration: none; }
+  header.top nav a:hover { color: var(--accent); }
+
+  .notice { margin-top: 40px; color: var(--text-quiet); }
+  .hint { color: var(--text-quiet); font-size: 14px; margin: 14px 0 0; }
+  .linkish {
+    font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
+    cursor: pointer; text-align: left; text-decoration: underline;
+  }
+  .button {
+    font: inherit; font-weight: 600; font-size: 15px; color: #fff; background: var(--button);
+    border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer;
+  }
+  .button:hover { background: var(--button-hover); }
+
+  /* Start: no folder in the address yet */
+  .start { max-width: 680px; padding-top: 56px; padding-bottom: 60px; }
+  .start h1 { font-size: clamp(28px, 4vw, 38px); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 12px; }
+  .start .lead { color: var(--text-quiet); font-size: 17px; margin: 0 0 24px; }
+  .start form { display: flex; flex-wrap: wrap; gap: 10px; }
+  .start input {
+    flex: 1 1 320px; min-width: 0; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  }
+  .start input:focus { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
+  .error {
+    margin: 0 0 18px; padding: 10px 14px; border-left: 3px solid #e5484d;
+    background: var(--bg-card); border-radius: 0 10px 10px 0;
+  }
+
+  /* Player */
+  .player { padding-top: 24px; padding-bottom: 48px; }
+  .heading {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+    gap: 6px 24px; margin: 0 0 18px;
+  }
+  .heading h1 {
+    margin: 0; font-size: clamp(24px, 3vw, 32px); line-height: 1.2;
+    letter-spacing: -.02em; overflow-wrap: anywhere;
+  }
+  .summary { display: flex; align-items: center; gap: 12px; color: var(--text-quiet); font-size: 15px; }
+  .meter { width: 160px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .meter i { display: block; width: 0; height: 100%; background: var(--accent); transition: width .3s; }
+
+  .layout {
+    display: grid; gap: 28px; align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
+  }
+  .screen {
+    position: relative; aspect-ratio: 16 / 9; max-height: calc(100vh - 230px);
+    background: #000; border-radius: var(--radius); overflow: hidden;
+  }
+  .screen video, .screen iframe {
+    position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block;
+  }
+  .stage h2 {
+    font-size: 21px; line-height: 1.35; letter-spacing: -.01em;
+    margin: 16px 0 4px; overflow-wrap: anywhere;
+  }
+  .now-meta { color: var(--text-quiet); font-size: 14px; margin: 0 0 14px; overflow-wrap: anywhere; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; }
+  .controls button {
+    font: inherit; font-size: 15px; font-weight: 600; color: var(--text);
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 16px; cursor: pointer;
+  }
+  .controls button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
+  .controls button:disabled { opacity: .45; cursor: default; }
+  .controls button.done { color: #fff; background: var(--button); border-color: var(--button); }
+  .controls button.done:hover { color: #fff; background: var(--button-hover); }
+
+  /* The list scrolls on its own beside the player, so both stay in view. */
+  .playlist {
+    position: sticky; top: 86px; max-height: calc(100vh - 110px); overflow-y: auto;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 6px 0;
+  }
+  .playlist h3 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-quiet);
+    margin: 16px 16px 4px; overflow-wrap: anywhere;
+  }
+  .playlist ol { list-style: none; margin: 0; padding: 0; }
+  .item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px 10px 13px; border-left: 3px solid transparent;
+  }
+  .item + .item { border-top: 1px solid var(--border); }
+  .item.current { background: var(--bg); border-left-color: var(--accent); }
+  .item input { flex: none; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); cursor: pointer; }
+  .pick {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+    font: inherit; color: inherit; background: none; border: 0; padding: 0;
+    text-align: left; cursor: pointer;
+  }
+  /* The whole name, however long: it wraps instead of being cut short. */
+  .pick .name { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+  .item.current .name { font-weight: 600; }
+  .item.watched .name { color: var(--text-quiet); }
+  .pick:hover .name { color: var(--accent); }
+  .pick .meta { font-size: 13px; color: var(--text-quiet); }
+  .pick .meta:empty { display: none; }
+  .pick .bar { height: 3px; margin-top: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .pick .bar i { display: block; height: 100%; background: var(--accent); }
+  .playlist .hint { margin: 12px 16px 8px; font-size: 13px; }
+
+  @media (pointer: coarse) {
+    .item input { width: 22px; height: 22px; margin-top: 1px; }
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .screen { max-height: none; }
+    .playlist { position: static; max-height: none; overflow: visible; }
+  }
+  @media (max-width: 640px) {
+    header.top .wrap { padding: 0 20px; }
+    header.top nav { gap: 16px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#512BD4"/><path d="M12 9.5v13l11-6.5z" fill="#fff"/></svg>
+    <b>Filmy</b>
+    <nav>
+      <a id="drive-link" href="https://drive.google.com/" target="_blank" rel="noopener" hidden>Folder na Dysku</a>
+      <a id="other-folder" href="./" hidden>Inny folder</a>
+    </nav>
+  </div>
+</header>
+
+<p class="wrap notice" id="notice" role="status" hidden></p>
+
+<div class="wrap start" id="start" hidden>
+  <h1>Filmy z Dysku Google</h1>
+  <p class="lead">
+    Wklej link do folderu na Dysku Google. Strona pokaże wszystkie filmy
+    z pełnymi nazwami, odtworzy je i zaznaczy te, które są już obejrzane.
+  </p>
+  <p class="error" id="start-error" role="alert" hidden></p>
+  <form id="start-form">
+    <input name="folder" type="text" required spellcheck="false" autocapitalize="off" autocomplete="off"
+           aria-label="Link do folderu na Dysku Google" placeholder="https://drive.google.com/drive/folders/…">
+    <button class="button" type="submit">Otwórz</button>
+  </form>
+  <p class="hint">
+    Folder musi być udostępniony każdemu, kto ma link. Adres tej strony
+    z otwartym folderem można wysłać dalej: u każdego otworzy się od razu.
+  </p>
+</div>
+
+<main class="wrap player" id="app" hidden>
+  <div class="heading">
+    <h1 id="folder-name">Filmy</h1>
+    <div class="summary">
+      <span id="summary-text"></span>
+      <span class="meter" aria-hidden="true"><i id="summary-bar"></i></span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="stage" id="stage">
+      <div class="screen">
+        <video id="video" controls playsinline preload="metadata" crossorigin="anonymous"></video>
+        <iframe id="frame" title="Odtwarzacz Dysku Google" allow="autoplay; fullscreen" hidden></iframe>
+      </div>
+      <h2 id="now-name"></h2>
+      <p class="now-meta" id="now-meta"></p>
+      <div class="controls">
+        <button type="button" id="prev">‹ Poprzedni</button>
+        <button type="button" id="toggle">Oznacz jako obejrzany</button>
+        <button type="button" id="next">Następny ›</button>
+      </div>
+      <p class="hint" id="frame-note" hidden>
+        Ten film gra w odtwarzaczu Dysku Google, więc strona nie wie, kiedy się
+        kończy. Po obejrzeniu oznacz go przyciskiem powyżej.
+      </p>
+      <p class="hint" id="frame-offer">
+        <button class="linkish" type="button" id="use-frame">Film się nie odtwarza? Otwórz go w odtwarzaczu Dysku Google</button>
+      </p>
+    </div>
+
+    <aside class="playlist" id="playlist" aria-label="Lista filmów">
+      <div id="list"></div>
+      <p class="hint">Postęp zapisuje się w tej przeglądarce.</p>
+    </aside>
+  </div>
+</main>
+
+<script>
+/* Videos from a Google Drive folder, with the watched ones ticked off.
+ *
+ * The folder comes from the address, ?folder=<Drive link or id>, so a link to
+ * this page opens the same folder for anyone. A web page cannot read a Drive
+ * folder without a Google API key, so api/list (api/list.py) reads the
+ * folder's public view and hands the page the list.
+ *
+ * A video plays in the page's own <video>, straight from Drive's download
+ * link, and that is what lets the page see it finish: once playback passes
+ * WATCHED_AT of its length, or reaches the end, the video is marked watched.
+ * Drive serves those files to other sites only through CORS, hence
+ * crossorigin on the element. A file the browser cannot play goes to Drive's
+ * own player in a frame instead; that one tells the page nothing, so it gets
+ * marked by hand. Watched marks, the place to resume from and the length of
+ * each video are kept per file id in localStorage.
+ */
+const STORE = 'drive-filmy';
+const WATCHED_AT = 0.9;
+const byName = new Intl.Collator('pl', { numeric: true, sensitivity: 'base' }).compare;
+
+const $ = id => document.getElementById(id);
+const player = $('video');
+const frame = $('frame');
+
+let saved = load();         // { last: { <folder id>: <file id> }, videos: { <file id>: { watched, position, duration } } }
+let folder = '';
+let videos = [];            // playing order: { id, name, path, duration }
+let current = -1;
+const rows = new Map();     // file id -> that video's elements in the list
+const needsFrame = new Set(); // files the browser could not play on this visit
+let inFrame = false;        // the current video is in Drive's player, not in <video>
+let live = false;           // <video> holds the current file, its resume point applied
+let resumeAt = 0;
+let lastSaved = 0;
+let armed = false;          // playback was below WATCHED_AT since the last mark
+
+function load() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORE));
+    if (value && typeof value === 'object') {
+      return { ...value, last: value.last || {}, videos: value.videos || {} };
+    }
+  } catch (e) { /* private mode, or a broken value: start over */ }
+  return { last: {}, videos: {} };
+}
+
+function persist() {
+  try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch (e) { /* nothing to do */ }
+}
+
+const isWatched = id => Boolean(saved.videos[id] && saved.videos[id].watched);
+const entry = id => saved.videos[id] || (saved.videos[id] = {});
+
+/* Takes a folder link in any of the shapes Drive hands out, or a bare id. */
+function folderIdFrom(text) {
+  const value = String(text || '').trim();
+  const match = value.match(/\/folders\/([\w-]{10,})/) || value.match(/[?&]id=([\w-]{10,})/) ||
+    value.match(/^([\w-]{10,})$/);
+  return match ? match[1] : '';
+}
+
+function clock(seconds) {
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  const rest = String(total % 60).padStart(2, '0');
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`;
+}
+
+/* Where to pick a video up again: nowhere for the first seconds, or once it
+   is as good as finished. */
+function resumePoint(video) {
+  const at = (saved.videos[video.id] || {}).position || 0;
+  return at > 5 && !(video.duration && at >= video.duration * WATCHED_AT) ? at : 0;
+}
+
+/* A folder's own videos first, then each subfolder in turn, all by name.
+   Names compare the way people number things, so "2" comes before "10". */
+function inOrder(a, b) {
+  for (let i = 0; i < Math.min(a.path.length, b.path.length); i++) {
+    const folders = byName(a.path[i], b.path[i]);
+    if (folders) return folders;
+  }
+  return a.path.length - b.path.length || byName(a.name, b.name);
+}
+
+/* ---- Screens ---- */
+
+function notice(text) {
+  $('notice').textContent = text;
+  $('notice').hidden = !text;
+}
+
+function showStart(problem, link) {
+  notice('');
+  $('app').hidden = true;
+  $('start').hidden = false;
+  $('start-error').textContent = problem || '';
+  $('start-error').hidden = !problem;
+  if (link) $('start-form').elements.folder.value = link;
+}
+
+async function open(id) {
+  folder = id;
+  history.replaceState(null, '', '?folder=' + id); // a clean link to pass on
+  $('drive-link').href = 'https://drive.google.com/drive/folders/' + id;
+  $('drive-link').hidden = false;
+  $('other-folder').hidden = false;
+  notice('Wczytuję listę filmów…');
+
+  let response;
+  let list;
+  try {
+    response = await fetch('api/list?folder=' + encodeURIComponent(id));
+    list = await response.json();
+  } catch (error) {
+    notice('Nie udało się odczytać folderu z Dysku. Odśwież stronę za chwilę.');
+    return;
+  }
+  const link = 'https://drive.google.com/drive/folders/' + id;
+  if (response.status === 400) {
+    showStart('To nie wygląda na link do folderu na Dysku Google.');
+    return;
+  }
+  if (response.status === 404 || (response.ok && !list.videos.length)) {
+    showStart('W tym folderze nie widać filmów. Sprawdź, czy jest udostępniony każdemu, kto ma link.', link);
+    return;
+  }
+  if (!response.ok) {
+    notice('Nie udało się odczytać folderu z Dysku. Odśwież stronę za chwilę.');
+    return;
+  }
+
+  // Drive's public view gives no lengths; the page learns each one when the
+  // video is first opened.
+  videos = list.videos.map(video => ({
+    ...video,
+    path: video.path || [],
+    duration: (saved.videos[video.id] || {}).duration || 0
+  })).sort(inOrder);
+  $('folder-name').textContent = list.name || 'Filmy';
+  document.title = (list.name || 'Filmy') + ' · Filmy';
+  build();
+  notice('');
+  $('app').hidden = false;
+  select(firstToWatch(), false);
+}
+
+function make(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+function build() {
+  const list = $('list');
+  list.textContent = '';
+  rows.clear();
+  let ol = null;
+  let group = null;
+  videos.forEach((video, index) => {
+    const here = video.path.join(' / ');
+    if (!ol || here !== group) {
+      group = here;
+      if (here) list.append(make('h3', '', here));
+      ol = list.appendChild(make('ol'));
+    }
+
+    const item = make('li', 'item');
+    const check = make('input');
+    check.type = 'checkbox';
+    check.title = 'Obejrzany';
+    check.setAttribute('aria-label', 'Obejrzany: ' + video.name);
+    check.addEventListener('change', () => setWatched(video.id, check.checked));
+
+    const pick = make('button', 'pick');
+    pick.type = 'button';
+    const meta = make('span', 'meta');
+    const bar = make('span', 'bar');
+    const fill = bar.appendChild(make('i'));
+    pick.append(make('span', 'name', video.name), meta, bar);
+    pick.addEventListener('click', () => select(index, true));
+
+    item.append(check, pick);
+    ol.append(item);
+    rows.set(video.id, { item, check, pick, meta, bar, fill });
+  });
+}
+
+function paint() {
+  let seen = 0;
+  videos.forEach((video, index) => {
+    const row = rows.get(video.id);
+    const watched = isWatched(video.id);
+    const resume = resumePoint(video);
+    if (watched) seen++;
+    row.item.classList.toggle('watched', watched);
+    row.item.classList.toggle('current', index === current);
+    row.check.checked = watched;
+    if (index === current) row.pick.setAttribute('aria-current', 'true');
+    else row.pick.removeAttribute('aria-current');
+    row.meta.textContent = [
+      video.duration ? clock(video.duration) : '',
+      watched ? 'obejrzany' : resume ? 'wznów od ' + clock(resume) : ''
+    ].filter(Boolean).join(' · ');
+    row.bar.hidden = watched || !resume || !video.duration;
+    row.fill.style.width = (video.duration ? Math.min(resume / video.duration, 1) * 100 : 0) + '%';
+  });
+  $('summary-text').textContent = `Obejrzane ${seen} z ${videos.length}`;
+  $('summary-bar').style.width = (videos.length ? seen / videos.length * 100 : 0) + '%';
+
+  const video = videos[current];
+  if (!video) return;
+  const watched = isWatched(video.id);
+  $('now-name').textContent = video.name;
+  $('now-meta').textContent = [
+    video.path.join(' / '),
+    video.duration ? clock(video.duration) : '',
+    watched ? '✓ obejrzany' : 'nieobejrzany'
+  ].filter(Boolean).join(' · ');
+  $('toggle').textContent = watched ? 'Oznacz jako nieobejrzany' : 'Oznacz jako obejrzany';
+  $('toggle').classList.toggle('done', watched);
+  $('prev').disabled = current <= 0;
+  $('next').disabled = current >= videos.length - 1;
+}
+
+/* Brings the current row into view inside the list. On a narrow screen the
+   list is part of the page, and the page stays where it is. */
+function reveal(item) {
+  const box = $('playlist');
+  if (box.scrollHeight <= box.clientHeight) return;
+  const outer = box.getBoundingClientRect();
+  const inner = item.getBoundingClientRect();
+  if (inner.top < outer.top || inner.bottom > outer.bottom) {
+    box.scrollTop += inner.top - outer.top - (outer.height - inner.height) / 2;
+  }
+}
+
+/* A video picked far down the list on a phone starts above the screen. */
+function bringPlayerIntoView() {
+  const header = document.querySelector('header.top').offsetHeight;
+  const top = $('stage').getBoundingClientRect().top;
+  if (top < header) scrollTo({ top: scrollY + top - header - 12, behavior: 'smooth' });
+}
+
+/* The last video opened in this folder, if it is still unwatched; otherwise
+   the first unwatched one after it. */
+function firstToWatch() {
+  const last = videos.findIndex(video => video.id === saved.last[folder]);
+  if (last > -1 && !isWatched(videos[last].id)) return last;
+  for (let step = 1; step <= videos.length; step++) {
+    const index = (last + step) % videos.length;
+    if (!isWatched(videos[index].id)) return index;
+  }
+  return Math.max(last, 0);
+}
+
+/* ---- Playing ---- */
+
+function stop() {
+  savePosition();
+  live = false;
+  player.pause();
+  if (player.getAttribute('src')) {
+    player.removeAttribute('src');
+    player.load();
+  }
+  if (frame.src.startsWith('https:')) frame.src = 'about:blank'; // a hidden frame plays on
+}
+
+function showFrame(on) {
+  inFrame = on;
+  player.hidden = on;
+  frame.hidden = !on;
+  $('frame-note').hidden = !on;
+  $('frame-offer').hidden = on;
+  if (on) frame.src = 'https://drive.google.com/file/d/' + videos[current].id + '/preview';
+}
+
+function toFrame() {
+  const video = videos[current];
+  if (!video || inFrame) return;
+  needsFrame.add(video.id);
+  stop();
+  showFrame(true);
+}
+
+function select(index, play) {
+  const video = videos[index];
+  if (!video) return;
+  stop();
+  current = index;
+  resumeAt = resumePoint(video);
+  lastSaved = resumeAt;
+  armed = true; // it starts from 0 or from a resume point, both below WATCHED_AT
+  saved.last[folder] = video.id;
+  persist();
+
+  showFrame(needsFrame.has(video.id));
+  if (!inFrame) {
+    player.src = 'https://drive.usercontent.google.com/download?export=download&confirm=t&id=' +
+      encodeURIComponent(video.id);
+    if (play) player.play().catch(() => { /* a file that does not load raises error */ });
+  }
+  paint();
+  reveal(rows.get(video.id).item);
+  if (play) bringPlayerIntoView();
+}
+
+function savePosition() {
+  const video = videos[current];
+  if (!video || inFrame || !live) return;
+  lastSaved = player.currentTime;
+  entry(video.id).position = Math.floor(lastSaved);
+  persist();
+  paint();
+}
+
+function setWatched(id, watched) {
+  if (watched) entry(id).watched = true;
+  else if (saved.videos[id]) delete saved.videos[id].watched;
+  persist();
+  paint();
+}
+
+function markSeen(video) {
+  armed = false;
+  setWatched(video.id, true);
+}
+
+player.addEventListener('loadedmetadata', () => {
+  const video = videos[current];
+  if (!video) return;
+  if (isFinite(player.duration) && player.duration > 0) {
+    video.duration = player.duration;
+    entry(video.id).duration = Math.round(player.duration); // the list knows it from now on
+    persist();
+  }
+  if (resumeAt && resumeAt < player.duration * WATCHED_AT) player.currentTime = resumeAt;
+  live = true;
+  paint();
+});
+
+/* Crossing WATCHED_AT marks the video once. Unticking it past that point
+   sticks, until playback goes back below it and crosses it again. */
+player.addEventListener('timeupdate', () => {
+  const video = videos[current];
+  if (!video || !live) return;
+  const duration = player.duration;
+  if (isFinite(duration) && duration > 0 && player.currentTime >= duration * WATCHED_AT) {
+    if (armed) markSeen(video);
+  } else {
+    armed = true;
+  }
+  if (Math.abs(player.currentTime - lastSaved) >= 5) savePosition();
+});
+
+player.addEventListener('ended', () => {
+  const video = videos[current];
+  if (video && live && armed) markSeen(video); // a stream of unknown length ends here
+});
+
+player.addEventListener('error', () => {
+  if (player.getAttribute('src')) toFrame();
+});
+
+player.addEventListener('pause', savePosition);
+addEventListener('pagehide', savePosition);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) savePosition();
+});
+
+/* Another tab of this page wrote its marks; take them, or the next write here
+   would put the old ones back. */
+addEventListener('storage', event => {
+  if (event.key !== STORE) return;
+  saved = load();
+  if (videos.length) paint();
+});
+
+$('prev').addEventListener('click', () => select(current - 1, true));
+$('next').addEventListener('click', () => select(current + 1, true));
+$('toggle').addEventListener('click', () => {
+  const video = videos[current];
+  if (video) setWatched(video.id, !isWatched(video.id));
+});
+$('use-frame').addEventListener('click', toFrame);
+
+$('start-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const id = folderIdFrom(event.target.elements.folder.value);
+  if (id) location.search = '?folder=' + id;
+  else showStart('To nie wygląda na link do folderu na Dysku Google.');
+});
+
+const linked = folderIdFrom(new URLSearchParams(location.search).get('folder'));
+if (linked) open(linked);
+else showStart();
+</script>
+</body>
+</html>
