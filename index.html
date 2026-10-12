@@ -61,10 +61,6 @@
 
   .notice { margin-top: 40px; color: var(--text-quiet); }
   .hint { color: var(--text-quiet); font-size: 14px; margin: 14px 0 0; }
-  .linkish {
-    font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
-    cursor: pointer; text-align: left; text-decoration: underline;
-  }
   .button {
     font: inherit; font-weight: 600; font-size: 15px; color: #fff; background: var(--button);
     border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer;
@@ -108,8 +104,10 @@
     position: relative; aspect-ratio: 16 / 9; max-height: calc(100vh - 230px);
     background: #000; border-radius: var(--radius); overflow: hidden;
   }
-  .screen video, .screen iframe {
-    position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block;
+  /* Sized and scaled by fitFrame() below. */
+  .screen iframe {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    border: 0; display: block; transform-origin: 0 0;
   }
   .stage h2 {
     font-size: 21px; line-height: 1.35; letter-spacing: -.01em;
@@ -124,8 +122,8 @@
   }
   .controls button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
   .controls button:disabled { opacity: .45; cursor: default; }
-  .controls button.done { color: #fff; background: var(--button); border-color: var(--button); }
-  .controls button.done:hover { color: #fff; background: var(--button-hover); }
+  .controls button.primary { color: #fff; background: var(--button); border-color: var(--button); }
+  .controls button.primary:hover:not(:disabled) { color: #fff; background: var(--button-hover); }
 
   /* The list scrolls on its own beside the player, so both stay in view. */
   .playlist {
@@ -157,8 +155,6 @@
   .pick:hover .name { color: var(--accent); }
   .pick .meta { font-size: 13px; color: var(--text-quiet); }
   .pick .meta:empty { display: none; }
-  .pick .bar { height: 3px; margin-top: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
-  .pick .bar i { display: block; height: 100%; background: var(--accent); }
   .playlist .hint { margin: 12px 16px 8px; font-size: 13px; }
 
   @media (pointer: coarse) {
@@ -169,9 +165,11 @@
     .screen { max-height: none; }
     .playlist { position: static; max-height: none; overflow: visible; }
   }
+  /* On a phone the player takes the full width of the screen. */
   @media (max-width: 640px) {
     header.top .wrap { padding: 0 20px; }
     header.top nav { gap: 16px; font-size: 14px; }
+    .screen { margin: 0 -24px; border-radius: 0; }
   }
 </style>
 </head>
@@ -219,23 +217,20 @@
 
   <div class="layout">
     <div class="stage" id="stage">
-      <div class="screen">
-        <video id="video" controls playsinline preload="metadata" crossorigin="anonymous"></video>
-        <iframe id="frame" title="Odtwarzacz Dysku Google" allow="autoplay; fullscreen" hidden></iframe>
+      <div class="screen" id="screen">
+        <iframe id="frame" title="Odtwarzacz Dysku Google" allow="autoplay; fullscreen"></iframe>
       </div>
       <h2 id="now-name"></h2>
       <p class="now-meta" id="now-meta"></p>
       <div class="controls">
         <button type="button" id="prev">‹ Poprzedni</button>
-        <button type="button" id="toggle">Oznacz jako obejrzany</button>
         <button type="button" id="next">Następny ›</button>
+        <button type="button" class="primary" id="done">✓ Obejrzany, następny</button>
       </div>
-      <p class="hint" id="frame-note" hidden>
-        Ten film gra w odtwarzaczu Dysku Google, więc strona nie wie, kiedy się
-        kończy. Po obejrzeniu oznacz go przyciskiem powyżej.
-      </p>
-      <p class="hint" id="frame-offer">
-        <button class="linkish" type="button" id="use-frame">Film się nie odtwarza? Otwórz go w odtwarzaczu Dysku Google</button>
+      <p class="hint">
+        Odtwarzacz Dysku Google nie mówi stronie, kiedy film się kończy. Po
+        obejrzeniu kliknij „Obejrzany, następny”; ptaszek przy filmie na liście
+        też zaznacza go i odznacza.
       </p>
     </div>
 
@@ -254,34 +249,23 @@
  * folder without a Google API key, so api/list (api/list.py) reads the
  * folder's public view and hands the page the list.
  *
- * A video plays in the page's own <video>, straight from Drive's download
- * link, and that is what lets the page see it finish: once playback passes
- * WATCHED_AT of its length, or reaches the end, the video is marked watched.
- * Drive serves those files to other sites only through CORS, hence
- * crossorigin on the element. A file the browser cannot play goes to Drive's
- * own player in a frame instead; that one tells the page nothing, so it gets
- * marked by hand. Watched marks, the place to resume from and the length of
- * each video are kept per file id in localStorage.
+ * Videos play in Drive's own player in a frame. Google refuses to stream the
+ * files straight into another site's <video> (a 403 and no CORS headers), and
+ * its player tells the page nothing, not even that a video ended, so a video
+ * is marked watched by hand: "Obejrzany, następny" or its tick in the list.
+ * The marks are kept per file id in localStorage.
  */
 const STORE = 'drive-filmy';
-const WATCHED_AT = 0.9;
 const byName = new Intl.Collator('pl', { numeric: true, sensitivity: 'base' }).compare;
 
 const $ = id => document.getElementById(id);
-const player = $('video');
 const frame = $('frame');
 
-let saved = load();         // { last: { <folder id>: <file id> }, videos: { <file id>: { watched, position, duration } } }
+let saved = load();         // { last: { <folder id>: <file id> }, videos: { <file id>: { watched } } }
 let folder = '';
-let videos = [];            // playing order: { id, name, path, duration }
+let videos = [];            // playing order: { id, name, path }
 let current = -1;
 const rows = new Map();     // file id -> that video's elements in the list
-const needsFrame = new Set(); // files the browser could not play on this visit
-let inFrame = false;        // the current video is in Drive's player, not in <video>
-let live = false;           // <video> holds the current file, its resume point applied
-let resumeAt = 0;
-let lastSaved = 0;
-let armed = false;          // playback was below WATCHED_AT since the last mark
 
 function load() {
   try {
@@ -298,7 +282,6 @@ function persist() {
 }
 
 const isWatched = id => Boolean(saved.videos[id] && saved.videos[id].watched);
-const entry = id => saved.videos[id] || (saved.videos[id] = {});
 
 /* Takes a folder link in any of the shapes Drive hands out, or a bare id. */
 function folderIdFrom(text) {
@@ -306,21 +289,6 @@ function folderIdFrom(text) {
   const match = value.match(/\/folders\/([\w-]{10,})/) || value.match(/[?&]id=([\w-]{10,})/) ||
     value.match(/^([\w-]{10,})$/);
   return match ? match[1] : '';
-}
-
-function clock(seconds) {
-  const total = Math.floor(seconds);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor(total / 60) % 60;
-  const rest = String(total % 60).padStart(2, '0');
-  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`;
-}
-
-/* Where to pick a video up again: nowhere for the first seconds, or once it
-   is as good as finished. */
-function resumePoint(video) {
-  const at = (saved.videos[video.id] || {}).position || 0;
-  return at > 5 && !(video.duration && at >= video.duration * WATCHED_AT) ? at : 0;
 }
 
 /* A folder's own videos first, then each subfolder in turn, all by name.
@@ -331,6 +299,19 @@ function inOrder(a, b) {
     if (folders) return folders;
   }
   return a.path.length - b.path.length || byName(a.name, b.name);
+}
+
+/* Drive's player lays itself out for the size of its frame, and in one as
+   narrow as a phone it comes out broken. Below FRAME_WIDTH the frame is drawn
+   that wide and scaled down to fit, so the player gets the layout it has on a
+   computer. Fullscreen undoes the scaling on its own. */
+const FRAME_WIDTH = 640;
+
+function fitFrame() {
+  const scale = Math.min(1, $('screen').clientWidth / FRAME_WIDTH);
+  frame.style.width = 100 / scale + '%';
+  frame.style.height = 100 / scale + '%';
+  frame.style.transform = scale < 1 ? `scale(${scale})` : '';
 }
 
 /* ---- Screens ---- */
@@ -380,18 +361,14 @@ async function open(id) {
     return;
   }
 
-  // Drive's public view gives no lengths; the page learns each one when the
-  // video is first opened.
-  videos = list.videos.map(video => ({
-    ...video,
-    path: video.path || [],
-    duration: (saved.videos[video.id] || {}).duration || 0
-  })).sort(inOrder);
+  videos = list.videos.map(video => ({ ...video, path: video.path || [] })).sort(inOrder);
   $('folder-name').textContent = list.name || 'Filmy';
   document.title = (list.name || 'Filmy') + ' · Filmy';
   build();
   notice('');
   $('app').hidden = false;
+  fitFrame();
+  if ('ResizeObserver' in window) new ResizeObserver(fitFrame).observe($('screen'));
   select(firstToWatch(), false);
 }
 
@@ -426,14 +403,12 @@ function build() {
     const pick = make('button', 'pick');
     pick.type = 'button';
     const meta = make('span', 'meta');
-    const bar = make('span', 'bar');
-    const fill = bar.appendChild(make('i'));
-    pick.append(make('span', 'name', video.name), meta, bar);
+    pick.append(make('span', 'name', video.name), meta);
     pick.addEventListener('click', () => select(index, true));
 
     item.append(check, pick);
     ol.append(item);
-    rows.set(video.id, { item, check, pick, meta, bar, fill });
+    rows.set(video.id, { item, check, pick, meta });
   });
 }
 
@@ -442,19 +417,13 @@ function paint() {
   videos.forEach((video, index) => {
     const row = rows.get(video.id);
     const watched = isWatched(video.id);
-    const resume = resumePoint(video);
     if (watched) seen++;
     row.item.classList.toggle('watched', watched);
     row.item.classList.toggle('current', index === current);
     row.check.checked = watched;
     if (index === current) row.pick.setAttribute('aria-current', 'true');
     else row.pick.removeAttribute('aria-current');
-    row.meta.textContent = [
-      video.duration ? clock(video.duration) : '',
-      watched ? 'obejrzany' : resume ? 'wznów od ' + clock(resume) : ''
-    ].filter(Boolean).join(' · ');
-    row.bar.hidden = watched || !resume || !video.duration;
-    row.fill.style.width = (video.duration ? Math.min(resume / video.duration, 1) * 100 : 0) + '%';
+    row.meta.textContent = watched ? 'obejrzany' : '';
   });
   $('summary-text').textContent = `Obejrzane ${seen} z ${videos.length}`;
   $('summary-bar').style.width = (videos.length ? seen / videos.length * 100 : 0) + '%';
@@ -462,16 +431,14 @@ function paint() {
   const video = videos[current];
   if (!video) return;
   const watched = isWatched(video.id);
+  const last = current >= videos.length - 1;
   $('now-name').textContent = video.name;
-  $('now-meta').textContent = [
-    video.path.join(' / '),
-    video.duration ? clock(video.duration) : '',
-    watched ? '✓ obejrzany' : 'nieobejrzany'
-  ].filter(Boolean).join(' · ');
-  $('toggle').textContent = watched ? 'Oznacz jako nieobejrzany' : 'Oznacz jako obejrzany';
-  $('toggle').classList.toggle('done', watched);
+  $('now-meta').textContent = [video.path.join(' / '), watched ? '✓ obejrzany' : 'nieobejrzany']
+    .filter(Boolean).join(' · ');
   $('prev').disabled = current <= 0;
-  $('next').disabled = current >= videos.length - 1;
+  $('next').disabled = last;
+  $('done').textContent = last ? '✓ Obejrzany' : '✓ Obejrzany, następny';
+  $('done').disabled = last && watched;
 }
 
 /* Brings the current row into view inside the list. On a narrow screen the
@@ -505,120 +472,24 @@ function firstToWatch() {
   return Math.max(last, 0);
 }
 
-/* ---- Playing ---- */
-
-function stop() {
-  savePosition();
-  live = false;
-  player.pause();
-  if (player.getAttribute('src')) {
-    player.removeAttribute('src');
-    player.load();
-  }
-  if (frame.src.startsWith('https:')) frame.src = 'about:blank'; // a hidden frame plays on
-}
-
-function showFrame(on) {
-  inFrame = on;
-  player.hidden = on;
-  frame.hidden = !on;
-  $('frame-note').hidden = !on;
-  $('frame-offer').hidden = on;
-  if (on) frame.src = 'https://drive.google.com/file/d/' + videos[current].id + '/preview';
-}
-
-function toFrame() {
-  const video = videos[current];
-  if (!video || inFrame) return;
-  needsFrame.add(video.id);
-  stop();
-  showFrame(true);
-}
-
-function select(index, play) {
+function select(index, picked) {
   const video = videos[index];
   if (!video) return;
-  stop();
   current = index;
-  resumeAt = resumePoint(video);
-  lastSaved = resumeAt;
-  armed = true; // it starts from 0 or from a resume point, both below WATCHED_AT
   saved.last[folder] = video.id;
   persist();
-
-  showFrame(needsFrame.has(video.id));
-  if (!inFrame) {
-    player.src = 'https://drive.usercontent.google.com/download?export=download&confirm=t&id=' +
-      encodeURIComponent(video.id);
-    if (play) player.play().catch(() => { /* a file that does not load raises error */ });
-  }
+  frame.src = 'https://drive.google.com/file/d/' + video.id + '/preview';
   paint();
   reveal(rows.get(video.id).item);
-  if (play) bringPlayerIntoView();
-}
-
-function savePosition() {
-  const video = videos[current];
-  if (!video || inFrame || !live) return;
-  lastSaved = player.currentTime;
-  entry(video.id).position = Math.floor(lastSaved);
-  persist();
-  paint();
+  if (picked) bringPlayerIntoView();
 }
 
 function setWatched(id, watched) {
-  if (watched) entry(id).watched = true;
+  if (watched) saved.videos[id] = { ...saved.videos[id], watched: true };
   else if (saved.videos[id]) delete saved.videos[id].watched;
   persist();
   paint();
 }
-
-function markSeen(video) {
-  armed = false;
-  setWatched(video.id, true);
-}
-
-player.addEventListener('loadedmetadata', () => {
-  const video = videos[current];
-  if (!video) return;
-  if (isFinite(player.duration) && player.duration > 0) {
-    video.duration = player.duration;
-    entry(video.id).duration = Math.round(player.duration); // the list knows it from now on
-    persist();
-  }
-  if (resumeAt && resumeAt < player.duration * WATCHED_AT) player.currentTime = resumeAt;
-  live = true;
-  paint();
-});
-
-/* Crossing WATCHED_AT marks the video once. Unticking it past that point
-   sticks, until playback goes back below it and crosses it again. */
-player.addEventListener('timeupdate', () => {
-  const video = videos[current];
-  if (!video || !live) return;
-  const duration = player.duration;
-  if (isFinite(duration) && duration > 0 && player.currentTime >= duration * WATCHED_AT) {
-    if (armed) markSeen(video);
-  } else {
-    armed = true;
-  }
-  if (Math.abs(player.currentTime - lastSaved) >= 5) savePosition();
-});
-
-player.addEventListener('ended', () => {
-  const video = videos[current];
-  if (video && live && armed) markSeen(video); // a stream of unknown length ends here
-});
-
-player.addEventListener('error', () => {
-  if (player.getAttribute('src')) toFrame();
-});
-
-player.addEventListener('pause', savePosition);
-addEventListener('pagehide', savePosition);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) savePosition();
-});
 
 /* Another tab of this page wrote its marks; take them, or the next write here
    would put the old ones back. */
@@ -630,11 +501,12 @@ addEventListener('storage', event => {
 
 $('prev').addEventListener('click', () => select(current - 1, true));
 $('next').addEventListener('click', () => select(current + 1, true));
-$('toggle').addEventListener('click', () => {
+$('done').addEventListener('click', () => {
   const video = videos[current];
-  if (video) setWatched(video.id, !isWatched(video.id));
+  if (!video) return;
+  setWatched(video.id, true);
+  if (current < videos.length - 1) select(current + 1, true);
 });
-$('use-frame').addEventListener('click', toFrame);
 
 $('start-form').addEventListener('submit', event => {
   event.preventDefault();

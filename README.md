@@ -19,11 +19,12 @@ prosi o wklejenie linku.
   widok folderu (`embeddedfolderview`) bez klucza API Google, razem
   z podfolderami, i zwraca listę filmów jako JSON. CDN trzyma wynik 5 minut,
   więc nowe filmy pojawiają się z takim opóźnieniem.
-- `index.html` odtwarza film w `<video>` prosto z linku pobierania Dysku
-  (przez CORS), więc po przekroczeniu 90% długości albo na końcu sam oznacza
-  go jako obejrzany i pamięta miejsce przerwania. Plik, którego przeglądarka
-  nie odtworzy, przechodzi do odtwarzacza Dysku Google; taki oznacza się
-  ręcznie.
+- `index.html` odtwarza film w odtwarzaczu Dysku Google w ramce. Google nie
+  pozwala odtwarzać tych plików bezpośrednio w `<video>` na innej stronie
+  (403, brak nagłówków CORS), a jego odtwarzacz nie mówi stronie, kiedy film
+  się kończy, więc obejrzany oznacza się przyciskiem „Obejrzany, następny”
+  albo ptaszkiem na liście. Na wąskim ekranie ramka jest rysowana na 640 px
+  szerokości i pomniejszana, bo w węższej odtwarzacz Dysku źle się układa.
 - Postęp jest w `localStorage` przeglądarki: każdy oglądający ma swój, na
   każdym urządzeniu osobno.
 
